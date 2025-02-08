@@ -1,17 +1,13 @@
-name: firecrawl
+version: "3.9"
 
-x-common-service: &common-service
-  build: apps/api
-  ulimits:
-    nofile:
-      soft: 65535
-      hard: 65535
-  networks:
-    - backend
-  extra_hosts:
-    - "host.docker.internal:host-gateway"
+networks:
+  backend:
+    driver: bridge
 
 services:
+  # ─────────────────────────────────────────────────────
+  # Playwright microservice
+  # ─────────────────────────────────────────────────────
   playwright-service:
     build: apps/playwright-service
     environment:
@@ -23,79 +19,135 @@ services:
     networks:
       - backend
 
+  # ─────────────────────────────────────────────────────
+  # Redis
+  # ─────────────────────────────────────────────────────
+  redis1:
+    image: redis:alpine
+    command: ["redis-server", "--bind", "0.0.0.0"]
+    ports:
+      - "6380:6379"
+    networks:
+      - backend
+
+  # ─────────────────────────────────────────────────────
+  # API Service
+  # ─────────────────────────────────────────────────────
   api:
-    <<: *common-service
-    environment:
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-      REDIS_RATE_LIMIT_URL: ${REDIS_URL:-redis://redis:6379}
-      PLAYWRIGHT_MICROSERVICE_URL: ${PLAYWRIGHT_MICROSERVICE_URL:-http://playwright-service:3000}
-      USE_DB_AUTHENTICATION: ${USE_DB_AUTHENTICATION}
-      PORT: ${PORT:-3002}
-      NUM_WORKERS_PER_QUEUE: ${NUM_WORKERS_PER_QUEUE}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
-      MODEL_NAME: ${MODEL_NAME:-gpt-4o}
-      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
-      LLAMAPARSE_API_KEY: ${LLAMAPARSE_API_KEY}
-      LOGTAIL_KEY: ${LOGTAIL_KEY}
-      BULL_AUTH_KEY: ${BULL_AUTH_KEY}
-      TEST_API_KEY: ${TEST_API_KEY}
-      POSTHOG_API_KEY: ${POSTHOG_API_KEY}
-      POSTHOG_HOST: ${POSTHOG_HOST}
-      SUPABASE_ANON_TOKEN: ${SUPABASE_ANON_TOKEN}
-      SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_SERVICE_TOKEN: ${SUPABASE_SERVICE_TOKEN}
-      SCRAPING_BEE_API_KEY: ${SCRAPING_BEE_API_KEY}
-      HOST: ${HOST:-0.0.0.0}
-      SELF_HOSTED_WEBHOOK_URL: ${SELF_HOSTED_WEBHOOK_URL}
-      LOGGING_LEVEL: ${LOGGING_LEVEL}
-      FLY_PROCESS_GROUP: app
+    build: apps/api
+    # Same as your x-common-service if you like:
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    networks:
+      - backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - redis
+      - redis1
       - playwright-service
     ports:
       - "3002:3002"
     command: [ "pnpm", "run", "start:production" ]
-
-  worker:
-    <<: *common-service
     environment:
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-      REDIS_RATE_LIMIT_URL: ${REDIS_URL:-redis://redis:6379}
-      PLAYWRIGHT_MICROSERVICE_URL: ${PLAYWRIGHT_MICROSERVICE_URL:-http://playwright-service:3000}
-      USE_DB_AUTHENTICATION: ${USE_DB_AUTHENTICATION}
-      PORT: ${PORT:-3002}
-      NUM_WORKERS_PER_QUEUE: ${NUM_WORKERS_PER_QUEUE}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
-      MODEL_NAME: ${MODEL_NAME:-gpt-4o}
-      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
-      LLAMAPARSE_API_KEY: ${LLAMAPARSE_API_KEY}
-      LOGTAIL_KEY: ${LOGTAIL_KEY}
-      BULL_AUTH_KEY: ${BULL_AUTH_KEY}
-      TEST_API_KEY: ${TEST_API_KEY}
-      POSTHOG_API_KEY: ${POSTHOG_API_KEY}
-      POSTHOG_HOST: ${POSTHOG_HOST}
-      SUPABASE_ANON_TOKEN: ${SUPABASE_ANON_TOKEN}
-      SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_SERVICE_TOKEN: ${SUPABASE_SERVICE_TOKEN}
-      SCRAPING_BEE_API_KEY: ${SCRAPING_BEE_API_KEY}
-      HOST: ${HOST:-0.0.0.0}
-      SELF_HOSTED_WEBHOOK_URL: ${SELF_HOSTED_WEBHOOK_URL}
-      LOGGING_LEVEL: ${LOGGING_LEVEL}
-      FLY_PROCESS_GROUP: worker
+      # ─── Your existing references ───
+      - REDIS_URL=${REDIS_URL:-redis://redis1:6379}
+      - REDIS_RATE_LIMIT_URL=${REDIS_RATE_LIMIT_URL:-redis://redis1:6379}
+      - PLAYWRIGHT_MICROSERVICE_URL=${PLAYWRIGHT_MICROSERVICE_URL:-http://playwright-service:3000}
+      - USE_DB_AUTHENTICATION=${USE_DB_AUTHENTICATION}
+      - PORT=${PORT:-3002}
+      - NUM_WORKERS_PER_QUEUE=${NUM_WORKERS_PER_QUEUE}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - MODEL_NAME=${MODEL_NAME:-gpt-4o}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - LLAMAPARSE_API_KEY=${LLAMAPARSE_API_KEY}
+      - LOGTAIL_KEY=${LOGTAIL_KEY}
+      - BULL_AUTH_KEY=${BULL_AUTH_KEY}
+      - TEST_API_KEY=${TEST_API_KEY}
+      - POSTHOG_API_KEY=${POSTHOG_API_KEY}
+      - POSTHOG_HOST=${POSTHOG_HOST}
+      - SUPABASE_ANON_TOKEN=${SUPABASE_ANON_TOKEN}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_TOKEN=${SUPABASE_SERVICE_TOKEN}
+      - SCRAPING_BEE_API_KEY=${SCRAPING_BEE_API_KEY}
+      - HOST=${HOST:-0.0.0.0}
+      - SELF_HOSTED_WEBHOOK_URL=${SELF_HOSTED_WEBHOOK_URL}
+      - LOGGING_LEVEL=${LOGGING_LEVEL}
+      - FLY_PROCESS_GROUP=app
+
+      # ─── Add Google Custom Search Variables ───
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GOOGLE_API_KEY1=${GOOGLE_API_KEY1}
+      - GOOGLE_API_KEY2=${GOOGLE_API_KEY2}
+      - GOOGLE_API_KEY3=${GOOGLE_API_KEY3}
+      - GOOGLE_API_KEY4=${GOOGLE_API_KEY4}
+      - GOOGLE_API_KEY5=${GOOGLE_API_KEY5}
+      - GOOGLE_API_KEY6=${GOOGLE_API_KEY6}
+      - GOOGLE_API_KEY7=${GOOGLE_API_KEY7}
+      - GOOGLE_API_KEY8=${GOOGLE_API_KEY8}
+      - GOOGLE_API_KEY8=${GOOGLE_API_KEY9}
+      - GOOGLE_API_KEY8=${GOOGLE_API_KEY10}
+      - GOOGLE_CSE_ID=${GOOGLE_CSE_ID}
+
+  # ─────────────────────────────────────────────────────
+  # Worker Service
+  # ─────────────────────────────────────────────────────
+  worker:
+    build: apps/api
+    # If you want to share the same "common-service" config
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    networks:
+      - backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - redis
+      - redis1
       - playwright-service
       - api
     command: [ "pnpm", "run", "workers" ]
+    environment:
+      # ─── Same environment references as API, if needed ───
+      - REDIS_URL=${REDIS_URL:-redis://redis1:6379}
+      - REDIS_RATE_LIMIT_URL=${REDIS_RATE_LIMIT_URL:-redis://redis1:6379}
+      - PLAYWRIGHT_MICROSERVICE_URL=${PLAYWRIGHT_MICROSERVICE_URL:-http://playwright-service:3000}
+      - USE_DB_AUTHENTICATION=${USE_DB_AUTHENTICATION}
+      - PORT=${PORT:-3002}
+      - NUM_WORKERS_PER_QUEUE=${NUM_WORKERS_PER_QUEUE}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - MODEL_NAME=${MODEL_NAME:-gpt-4o}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - LLAMAPARSE_API_KEY=${LLAMAPARSE_API_KEY}
+      - LOGTAIL_KEY=${LOGTAIL_KEY}
+      - BULL_AUTH_KEY=${BULL_AUTH_KEY}
+      - TEST_API_KEY=${TEST_API_KEY}
+      - POSTHOG_API_KEY=${POSTHOG_API_KEY}
+      - POSTHOG_HOST=${POSTHOG_HOST}
+      - SUPABASE_ANON_TOKEN=${SUPABASE_ANON_TOKEN}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_TOKEN=${SUPABASE_SERVICE_TOKEN}
+      - SCRAPING_BEE_API_KEY=${SCRAPING_BEE_API_KEY}
+      - HOST=${HOST:-0.0.0.0}
+      - SELF_HOSTED_WEBHOOK_URL=${SELF_HOSTED_WEBHOOK_URL}
+      - LOGGING_LEVEL=${LOGGING_LEVEL}
+      - FLY_PROCESS_GROUP=worker
 
-  redis:
-    image: redis:alpine
-    networks:
-      - backend
-    command: redis-server --bind 0.0.0.0
+      # ─── Google Custom Search ───
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GOOGLE_API_KEY1=${GOOGLE_API_KEY1}
+      - GOOGLE_API_KEY2=${GOOGLE_API_KEY2}
+      - GOOGLE_API_KEY3=${GOOGLE_API_KEY3}
+      - GOOGLE_API_KEY4=${GOOGLE_API_KEY4}
+      - GOOGLE_API_KEY5=${GOOGLE_API_KEY5}
+      - GOOGLE_API_KEY6=${GOOGLE_API_KEY6}
+      - GOOGLE_API_KEY7=${GOOGLE_API_KEY7}
+      - GOOGLE_API_KEY8=${GOOGLE_API_KEY8}
+      - GOOGLE_API_KEY8=${GOOGLE_API_KEY9}
+      - GOOGLE_API_KEY8=${GOOGLE_API_KEY10}
+      - GOOGLE_CSE_ID=${GOOGLE_CSE_ID}
 
-networks:
-  backend:
-    driver: bridge
