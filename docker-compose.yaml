@@ -22,7 +22,7 @@ services:
   # ─────────────────────────────────────────────────────
   # Redis
   # ─────────────────────────────────────────────────────
-  redis1:
+  redis:
     image: redis:alpine
     command: ["redis-server", "--bind", "0.0.0.0"]
     ports:
@@ -45,15 +45,15 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - redis1
+      - redis
       - playwright-service
     ports:
       - "3002:3002"
     command: [ "pnpm", "run", "start:production" ]
     environment:
       # ─── Your existing references ───
-      - REDIS_URL=${REDIS_URL:-redis://redis1:6379}
-      - REDIS_RATE_LIMIT_URL=${REDIS_RATE_LIMIT_URL:-redis://redis1:6379}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - REDIS_RATE_LIMIT_URL=${REDIS_RATE_LIMIT_URL:-redis://redis:6379}
       - PLAYWRIGHT_MICROSERVICE_URL=${PLAYWRIGHT_MICROSERVICE_URL:-http://playwright-service:3000}
       - USE_DB_AUTHENTICATION=${USE_DB_AUTHENTICATION}
       - PORT=${PORT:-3002}
@@ -106,14 +106,14 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - redis1
+      - redis
       - playwright-service
       - api
     command: [ "pnpm", "run", "workers" ]
     environment:
       # ─── Same environment references as API, if needed ───
-      - REDIS_URL=${REDIS_URL:-redis://redis1:6379}
-      - REDIS_RATE_LIMIT_URL=${REDIS_RATE_LIMIT_URL:-redis://redis1:6379}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - REDIS_RATE_LIMIT_URL=${REDIS_RATE_LIMIT_URL:-redis://redis:6379}
       - PLAYWRIGHT_MICROSERVICE_URL=${PLAYWRIGHT_MICROSERVICE_URL:-http://playwright-service:3000}
       - USE_DB_AUTHENTICATION=${USE_DB_AUTHENTICATION}
       - PORT=${PORT:-3002}
