@@ -23,6 +23,10 @@ import {
   toLegacyDocument,
 } from "../v1/types";
 
+/**
+ * Helper function that performs the search, enqueues scraping jobs, waits for
+ * their completion, and returns legacy-formatted documents.
+ */
 export async function searchHelper(
   jobId: string,
   req: Request,
@@ -48,10 +52,12 @@ export async function searchHelper(
   const filter = searchOptions.filter ?? undefined;
   let num_results = Math.min(searchOptions.limit ?? 7, 10);
 
+  // For this specific team, force a single result.
   if (team_id === "d97c4ceb-290b-4957-8432-2b2a02727d95") {
     num_results = 1;
   }
 
+  // Buffer results by 50%
   const num_results_buffer = Math.floor(num_results * 1.5);
 
   let res = await search({
@@ -65,8 +71,7 @@ export async function searchHelper(
     location: searchOptions.location,
   });
 
-  let justSearch = pageOptions.fetchPageContent === false;
-
+  const justSearch = pageOptions.fetchPageContent === false;
   const { scrapeOptions, internalOptions } = fromLegacyCombo(
     pageOptions,
     undefined,
@@ -76,14 +81,16 @@ export async function searchHelper(
 
   if (justSearch) {
     billTeam(team_id, subscription_id, res.length).catch((error) => {
+      // Safely convert error to a string
+      const errorMessage = error && error.message ? error.message : String(error);
       logger.error(
-        `Failed to bill team ${team_id} for ${res.length} credits: ${error}`,
+        `Failed to bill team ${team_id} for ${res.length} credits: ${errorMessage}`
       );
-      // Optionally, you could notify an admin or add to a retry queue here
     });
     return { success: true, data: res, returnCode: 200 };
   }
 
+  // Filter out blocked URLs and slice to the proper limit.
   res = res.filter((r) => !isUrlBlocked(r.url));
   if (res.length > num_results) {
     res = res.slice(0, num_results);
@@ -94,9 +101,7 @@ export async function searchHelper(
   }
 
   const jobPriority = await getJobPriority({ plan, team_id, basePriority: 20 });
-
-  // filter out social media links
-
+  // Create a job for each URL (filtering out social media links is assumed to be done earlier)
   const jobDatas = res.map((x) => {
     const url = x.url;
     const uuid = uuidv4();
@@ -116,14 +121,15 @@ export async function searchHelper(
     };
   });
 
-  // TODO: addScrapeJobs
+  // Enqueue scraping jobs.
   for (const job of jobDatas) {
     await addScrapeJob(job.data as any, {}, job.opts.jobId, job.opts.priority);
   }
 
+  // Wait for all scraping jobs to finish.
   const docs = (
     await Promise.all(
-      jobDatas.map((x) => waitForJob<Document>(x.opts.jobId, 60000)),
+      jobDatas.map((x) => waitForJob<Document>(x.opts.jobId, 60000))
     )
   ).map((x) => toLegacyDocument(x, internalOptions));
 
@@ -134,9 +140,9 @@ export async function searchHelper(
   const sq = getScrapeQueue();
   await Promise.all(jobDatas.map((x) => sq.remove(x.opts.jobId)));
 
-  // make sure doc.content is not empty
+  // Filter out documents with empty content.
   const filteredDocs = docs.filter(
-    (doc: any) => doc && doc.content && doc.content.trim().length > 0,
+    (doc: any) => doc && doc.content && doc.content.trim().length > 0
   );
 
   if (filteredDocs.length === 0) {
@@ -155,18 +161,26 @@ export async function searchHelper(
   };
 }
 
+/**
+ * Controller for handling legacy (v0) search requests.
+ */
 export async function searchController(req: Request, res: Response) {
   try {
-    // make sure to authenticate user first, Bearer <token>
+    // Authenticate user (expects Bearer <token>)
     const auth = await authenticateUser(req, res, RateLimiterMode.Search);
     if (!auth.success) {
       return res.status(auth.status).json({ error: auth.error });
     }
     const { team_id, plan, chunk } = auth;
 
-    redisConnection.sadd("teams_using_v0", team_id)
-      .catch(error => logger.error("Failed to add team to teams_using_v0", { error, team_id }));
-    
+    redisConnection
+      .sadd("teams_using_v0", team_id)
+      .catch((error) => {
+        const errorMessage =
+          error && error.message ? error.message : String(error);
+        logger.error("Failed to add team to teams_using_v0", { error: errorMessage, team_id });
+      });
+
     const crawlerOptions = req.body.crawlerOptions ?? {};
     const pageOptions = req.body.pageOptions ?? {
       includeHtml: req.body.pageOptions?.includeHtml ?? false,
@@ -176,22 +190,28 @@ export async function searchController(req: Request, res: Response) {
       fallback: req.body.pageOptions?.fallback ?? false,
     };
     const origin = req.body.origin ?? "api";
-
     const searchOptions = req.body.searchOptions ?? { limit: 5 };
 
     const jobId = uuidv4();
 
+    // Check billing credits
     try {
-      const { success: creditsCheckSuccess, message: creditsCheckMessage } =
-        await checkTeamCredits(chunk, team_id, 1);
+      const { success: creditsCheckSuccess } = await checkTeamCredits(
+        chunk,
+        team_id,
+        1
+      );
       if (!creditsCheckSuccess) {
         return res.status(402).json({ error: "Insufficient credits" });
       }
     } catch (error) {
+      const errorMessage =
+        error && error.message ? error.message : String(error);
       Sentry.captureException(error);
-      logger.error(error);
+      logger.error(errorMessage);
       return res.status(500).json({ error: "Internal server error" });
     }
+
     const startTime = new Date().getTime();
     const result = await searchHelper(
       jobId,
@@ -219,16 +239,16 @@ export async function searchController(req: Request, res: Response) {
       origin: origin,
     });
     return res.status(result.returnCode).json(result);
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      (error.message.startsWith("Job wait") || error.message === "timeout")
-    ) {
+  } catch (error: any) {
+    // Safely extract the error message.
+    const errorMessage =
+      error && error.message ? error.message : String(error);
+    if (errorMessage.startsWith("Job wait") || errorMessage === "timeout") {
       return res.status(408).json({ error: "Request timed out" });
     }
-
     Sentry.captureException(error);
-    logger.error("Unhandled error occurred in search", { error });
-    return res.status(500).json({ error: error.message });
+    logger.error("Unhandled error occurred in search", { error: errorMessage });
+    return res.status(500).json({ error: errorMessage });
   }
 }
+

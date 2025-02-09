@@ -20,6 +20,10 @@ import { isUrlBlocked } from "../../scraper/WebScraper/utils/blocklist";
 import * as Sentry from "@sentry/node";
 import { BLOCKLISTED_URL_MESSAGE } from "../../lib/strings";
 
+/**
+ * Attempts to scrape a search result. In case of error, returns a minimal Document
+ * with metadata describing the error.
+ */
 async function scrapeSearchResult(
   searchResult: { url: string; title: string; description: string },
   options: {
@@ -28,7 +32,7 @@ async function scrapeSearchResult(
     origin: string;
     timeout: number;
     scrapeOptions: ScrapeOptions;
-  },
+  }
 ): Promise<Document> {
   const jobId = uuidv4();
   const jobPriority = await getJobPriority({
@@ -54,45 +58,51 @@ async function scrapeSearchResult(
       },
       {},
       jobId,
-      jobPriority,
+      jobPriority
     );
 
     const doc = await waitForJob<Document>(jobId, options.timeout);
     await getScrapeQueue().remove(jobId);
 
-    // Move SERP results to top level
+    // Merge the SERP result fields to the scraped document.
     return {
       title: searchResult.title,
       description: searchResult.description,
       url: searchResult.url,
       ...doc,
     };
-  } catch (error) {
-    logger.error(`Error in scrapeSearchResult: ${error}`, {
+  } catch (error: any) {
+    // Ensure we have a valid string error message.
+    const errorMessage = error && error.message ? error.message : String(error);
+    logger.error(`Error in scrapeSearchResult: ${errorMessage}`, {
       url: searchResult.url,
       teamId: options.teamId,
     });
 
     let statusCode = 0;
-    if (error.message.includes("Could not scrape url")) {
+    if (errorMessage.includes("Could not scrape url")) {
       statusCode = 403;
     }
-    // Return a minimal document with SERP results at top level
+
+    // Return a minimal document including the error info.
     return {
       title: searchResult.title,
       description: searchResult.description,
       url: searchResult.url,
       metadata: {
         statusCode,
-        error: error.message,
+        error: errorMessage,
       },
     };
   }
 }
 
+/**
+ * Controller for handling search requests.
+ */
 export async function searchController(
   req: RequestWithAuth<{}, SearchResponse, SearchRequest>,
-  res: Response<SearchResponse>,
+  res: Response<SearchResponse>
 ) {
   try {
     req.body = searchRequestSchema.parse(req.body);
@@ -101,8 +111,7 @@ export async function searchController(
     const startTime = new Date().getTime();
 
     let limit = req.body.limit;
-
-    // Buffer results by 50% to account for filtered URLs
+    // Buffer results by 50% to account for filtered URLs.
     const num_results_buffer = Math.floor(limit * 1.5);
 
     let searchResults = await search({
@@ -116,7 +125,7 @@ export async function searchController(
       location: req.body.location,
     });
 
-    // Filter blocked URLs early to avoid unnecessary billing
+    // Slice results down to the requested limit.
     if (searchResults.length > limit) {
       searchResults = searchResults.slice(0, limit);
     }
@@ -129,6 +138,7 @@ export async function searchController(
       });
     }
 
+    // If no scraping formats are requested, simply bill and return the SERP data.
     if (
       !req.body.scrapeOptions.formats ||
       req.body.scrapeOptions.formats.length === 0
@@ -136,9 +146,9 @@ export async function searchController(
       billTeam(req.auth.team_id, req.acuc?.sub_id, searchResults.length).catch(
         (error) => {
           logger.error(
-            `Failed to bill team ${req.auth.team_id} for ${searchResults.length} credits: ${error}`,
+            `Failed to bill team ${req.auth.team_id} for ${searchResults.length} credits: ${error}`
           );
-        },
+        }
       );
       return res.status(200).json({
         success: true,
@@ -150,7 +160,7 @@ export async function searchController(
       });
     }
 
-    // Scrape each non-blocked result, handling timeouts individually
+    // Scrape each search result.
     const scrapePromises = searchResults.map((result) =>
       scrapeSearchResult(result, {
         teamId: req.auth.team_id,
@@ -158,22 +168,23 @@ export async function searchController(
         origin: req.body.origin,
         timeout: req.body.timeout,
         scrapeOptions: req.body.scrapeOptions,
-      }),
+      })
     );
 
     const docs = await Promise.all(scrapePromises);
 
-    // Bill for successful scrapes only
+    // Bill for the successfully scraped results.
     billTeam(req.auth.team_id, req.acuc?.sub_id, docs.length).catch((error) => {
       logger.error(
-        `Failed to bill team ${req.auth.team_id} for ${docs.length} credits: ${error}`,
+        `Failed to bill team ${req.auth.team_id} for ${docs.length} credits: ${error}`
       );
     });
 
-    // Filter out empty content but keep docs with SERP results
+    // Filter out documents with empty content (unless SERP results exist).
     const filteredDocs = docs.filter(
       (doc) =>
-        doc.serpResults || (doc.markdown && doc.markdown.trim().length > 0),
+        doc.serpResults ||
+        (doc.markdown && doc.markdown.trim().length > 0)
     );
 
     if (filteredDocs.length === 0) {
@@ -203,10 +214,12 @@ export async function searchController(
       success: true,
       data: filteredDocs,
     });
-  } catch (error) {
+  } catch (error: any) {
+    const errorMessage = error && error.message ? error.message : String(error);
+    // Handle timeout-specific errors.
     if (
-      error instanceof Error &&
-      (error.message.startsWith("Job wait") || error.message === "timeout")
+      errorMessage.startsWith("Job wait") ||
+      errorMessage === "timeout"
     ) {
       return res.status(408).json({
         success: false,
@@ -215,10 +228,11 @@ export async function searchController(
     }
 
     Sentry.captureException(error);
-    logger.error("Unhandled error occurred in search", { error });
+    logger.error("Unhandled error occurred in search", { error: errorMessage });
     return res.status(500).json({
       success: false,
-      error: error.message,
+      error: errorMessage,
     });
   }
 }
+
