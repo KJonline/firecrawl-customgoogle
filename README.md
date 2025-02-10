@@ -1,3 +1,58 @@
+# Fork of Firecrawl with Custom Google Endpoints
+
+## Modifications
+
+I'm going to make a few assumptions here. And this is just how I did it with the current version. I'm not a dev.
+
+1. You have a google account
+2. You know how to setup a custom search engine id - https://programmablesearchengine.google.com/controlpanel/all
+3. You know how to setup a project, obtain an API key (or 10) from google, enable the custom search api - https://console.cloud.google.com/apis/dashboard
+4. You're using docker to setup the self hosted firecrawl instance.
+5. Docker has buildkit enabled
+
+
+``` # /etc/docker/daemon.json
+{
+  "features": {
+    "buildkit": true
+  }
+}
+```
+
+
+Setup - as per normal instructions.
+- Add the extra environment variables to ".env"
+- launch docker with 'sudo docker-compose --env-file .env up -d --build'
+- monitor with 'sudo docker logs -f firecrawl_api_1' or as customised
+
+**This works for my purpose. It may need adapting for others.**
+
+## Extra .env variables
+
+```
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GOOGLE_API_KEY1=${GOOGLE_API_KEY1}
+      - GOOGLE_API_KEY2=${GOOGLE_API_KEY2}
+      - GOOGLE_API_KEY3=${GOOGLE_API_KEY3}
+      - GOOGLE_API_KEY4=${GOOGLE_API_KEY4}
+      - GOOGLE_API_KEY5=${GOOGLE_API_KEY5}
+      - GOOGLE_API_KEY6=${GOOGLE_API_KEY6}
+      - GOOGLE_API_KEY7=${GOOGLE_API_KEY7}
+      - GOOGLE_API_KEY8=${GOOGLE_API_KEY8}
+      - GOOGLE_API_KEY9=${GOOGLE_API_KEY9}
+      - GOOGLE_API_KEY10=${GOOGLE_API_KEY10}
+      - GOOGLE_CSE_ID=${GOOGLE_CSE_ID}
+```
+
+
+
+
+
+
+
+
+
+
 <h3 align="center">
   <a name="readme-top"></a>
   <img
