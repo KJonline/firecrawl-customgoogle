@@ -94,12 +94,12 @@ export async function googleCustomSearch(
       });
 
       // Log success and the number of items returned
-      console.log(
+      console.debug(
         `[googleCustomSearch] Key ending "${apiKey.slice(-6)}" returned ${results.length} results.`
       );
 
       // If you'd like, log the full response items (can be large)
-      console.log(
+      console.debug(
         `[googleCustomSearch] Full response items:\n${JSON.stringify(items, null, 2)}`
       );
 
